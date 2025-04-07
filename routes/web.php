@@ -22,7 +22,5 @@ Route::middleware('auth')->group(function () {
     Route::post('/forum/{post}/comments', [PostsController::class, 'storeComment'])->name('posts.comment.store');
     Route::post('/forum', [PostsController::class, 'store'])->name('posts.store');
 });
-
 require __DIR__.'/settings.php';
 require __DIR__.'/auth.php';
-require __DIR__.'/api.php';
