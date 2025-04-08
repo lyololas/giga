@@ -2,20 +2,43 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
+use Inertia\Inertia;
+use App\Models\GoodHistories;
 use App\Models\Tags;
-use App\Models\Post;
+
 class GHController extends Controller
 {
-    public function index(Request $request)
+    public function index()
     {
-        $tags = Tags::with(['user', 'posts'])
-                    ->where('is_moderated', true)
-                    ->latest()
-                    ->get();
+        $currentHistory = GoodHistories::with(['user', 'tags'])
+            ->where('is_moderated', true)
+            ->first();
+
+        // Add author's name or user ID
+        $author = $currentHistory ? $currentHistory->user->name ?? $currentHistory->user->id : null;
+
+        $allTags = Tags::all();
+        $totalHistories = GoodHistories::where('is_moderated', true)->count();
 
         return Inertia::render('GHShow', [
-            'tags' => $tags,
+            'currentHistory' => $currentHistory,
+            'author' => $author, // Pass the author's name or ID
+            'allTags' => $allTags,
+            'totalHistories' => $totalHistories,
+        ]);
+    }
+
+    public function random()
+    {
+        $history = GoodHistories::with(['user', 'tags'])
+            ->where('is_moderated', true)
+            ->inRandomOrder()
+            ->first();
+
+        return Inertia::render('GHShow', [
+            'currentHistory' => $history,
+            'allTags' => Tags::all(),
+            'totalHistories' => GoodHistories::where('is_moderated', true)->count(),
         ]);
     }
 }

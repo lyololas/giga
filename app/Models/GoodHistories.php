@@ -11,52 +11,23 @@ class GoodHistories extends Model
     use CrudTrait;
     use HasFactory;
 
-    /*
-    |--------------------------------------------------------------------------
-    | GLOBAL VARIABLES
-    |--------------------------------------------------------------------------
-    */
-
     protected $table = 'good_histories';
-    // protected $primaryKey = 'id';
-    // public $timestamps = false;
-    protected $guarded = ['id', 'name'];
-    // protected $fillable = [];
-    // protected $hidden = [];
+    protected $guarded = ['id'];
+    protected $fillable = [
+        'title',
+        'description',
+        'user_id',
+        'is_moderated',
+        'image',
+    ];
 
-    /*
-    |--------------------------------------------------------------------------
-    | FUNCTIONS
-    |--------------------------------------------------------------------------
-    */
-
-    /*
-    |--------------------------------------------------------------------------
-    | RELATIONS
-    |--------------------------------------------------------------------------
-    */
-    public function user() {
+    public function user()
+    {
         return $this->belongsTo(User::class);
     }
-    public function post() {
-        return $this->belongsTo(Post::class);
+
+    public function tags()
+    {
+        return $this->belongsToMany(Tags::class, 'good_histories_tags', 'good_history_id', 'tag_id');
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | SCOPES
-    |--------------------------------------------------------------------------
-    */
-
-    /*
-    |--------------------------------------------------------------------------
-    | ACCESSORS
-    |--------------------------------------------------------------------------
-    */
-
-    /*
-    |--------------------------------------------------------------------------
-    | MUTATORS
-    |--------------------------------------------------------------------------
-    */
 }

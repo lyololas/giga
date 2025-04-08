@@ -14,8 +14,8 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->string('password');
             $table->bigInteger('telegram_chat_id')->unique()->nullable();
-            $table->string('role')->default('user'); // Add this line
-            $table->boolean('available')->default(false); // Add this line
+            $table->string('role')->default('user'); 
+            $table->boolean('available')->default(false); 
             $table->text('original_name')->nullable();
             $table->text('original_email')->nullable();
             $table->rememberToken();

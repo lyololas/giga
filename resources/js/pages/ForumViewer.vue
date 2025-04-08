@@ -93,7 +93,7 @@ const handleImageError = (event: Event) => {
 
     <AppLayout :breadcrumbs="breadcrumbs">
         <div class="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
-            <Button @click="handleCreatePostClick" class="mb-4 bg-blue-600 hover:bg-blue-700">
+            <Button @click="handleCreatePostClick" class="mb-4 bg-green-700 hover:bg-blue-700">
                 Создать новый пост
             </Button>
             <h1 class="text-4xl">СТАТЬИ</h1>

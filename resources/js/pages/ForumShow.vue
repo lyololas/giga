@@ -1,7 +1,6 @@
 <template>
     <Head :title="post.title" />
     <AppLayout :breadcrumbs="breadcrumbs">
-        <!-- Секция поста (без изменений) -->
         <div class="bg-white p-6 rounded-lg shadow-md mb-6">
             <h1 class="text-2xl font-bold mb-2">{{ post.title }}</h1>
             <p class="text-gray-600 mb-4">{{ post.description }}</p>
@@ -21,10 +20,9 @@
             <div class="flex items-center text-sm text-gray-500 mb-4">
                 <span class="mr-4">Автор: {{ post.user.name }}</span>
                 <span>Опубликовано: {{ formatDate(post.created_at) }}</span>
-            </div>
+            </div>E
         </div>
 
-        <!-- Секция комментариев -->
         <div class="bg-white p-6 rounded-lg shadow-md">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-semibold">Комментарии ({{ sortedComments.length }})</h2>
@@ -37,14 +35,13 @@
                 </button>
             </div>
 
-            <!-- Список комментариев -->
             <div class="space-y-4" v-if="sortedComments.length > 0">
                 <div 
                     v-for="comment in sortedComments" 
                     :key="comment.id" 
                     class="flex items-start space-x-4 group"
                 >
-                    <!-- Бейдж доверенного пользователя -->
+
                     <div class="flex-shrink-0 relative">
                         <div 
                             class="h-10 w-10 bg-gray-200 rounded-full flex items-center justify-center transition-all"
@@ -66,7 +63,6 @@
                         </span>
                     </div>
 
-                    <!-- Содержание комментария -->
                     <div class="flex-1">
                         <div class="bg-gray-50 p-4 rounded-lg">
                             <div class="flex items-center gap-2">
