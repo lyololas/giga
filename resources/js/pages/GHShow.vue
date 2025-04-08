@@ -1,59 +1,118 @@
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
 import { type BreadcrumbItem } from '@/types';
-import { Head } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { ref } from 'vue';
+
+const props = defineProps<{
+    currentHistory: any;
+    allTags: any[];
+    totalHistories: number;
+}>();
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
-        title: 'gh',
+        title: 'Good Histories',
         href: '/gh',
     },
 ];
+
+const currentHistory = ref(props.currentHistory);
+const loading = ref(false);
+
+const loadNextHistory = async () => {
+    loading.value = true;
+    try {
+        const response = await fetch('/api/good-histories/random');
+        const data = await response.json();
+        currentHistory.value = data;
+    } catch (error) {
+        console.error('Error loading next history:', error);
+    } finally {
+        loading.value = false;
+    }
+};
 </script>
 
 <template>
-    <Head title="gh" />
+    <Head title="Good Histories" />
 
     <AppLayout :breadcrumbs="breadcrumbs">
-        <div class="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
-            <div class="">
-                <div class="">
-                <div class="rounded-lg bg-white">
-                    <div class="rounded-lg p-5">
-                        <img src="https://s3-alpha-sig.figma.com/img/9d9d/10ed/d9b91f71781ec49c1da9ca979f4e544d?Expires=1745193600&Key-Pair-Id=APKAQ4GOSFWCW27IBOMQ&Signature=kdePU46DC0cdJFDHEQ3BnzHbe-Bf-ZzMFKjlG88C3jNc1RtA0XJfCYpCTC9-fnlIfLUNfnHQBJ4bKg5LRHjnCwazYnpuF91~nO0ckPcgF9FAX4mkrrk8OmQvXvEVvH4NtoFiREv-kBksiVWYLAEQqVs54bWl1v3dTEqmwGMkqjWkLGyu-R7jT~2LpD4FZdfqFDH~0kqYHh55cs~lfjb0gLvNRqsoSinx01B1PsIl~n9g4ZGB2RBsW7sZPueeN8NZZbSGW~IIhiOG9J58YRt8Abc4wcjBg~yXzJpxbKV58fDFf7OZjLRa40N3A~NYnPwfwZ4Ikwqsf~tck3Q0wkKc6g__" 
-                        alt="" class="w-full h-56 object-none rounded-lg ">
-                        
+        <div class="container mx-auto px-4 py-8">
+            <!-- Hero Section -->
+            <Card class="mb-8" v-if="currentHistory">
+                <CardHeader>
+                    <img 
+                        :src="currentHistory.image" 
+                        alt="Featured History" 
+                        class="w-full h-64 object-cover rounded-lg"
+                    />
+                </CardHeader>
+                <CardContent class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                        <CardTitle class="text-3xl font-bold">Истории добрых дел</CardTitle>
+                        <CardDescription>{{ totalHistories }} историй доступно</CardDescription>
                     </div>
-                    <div class="p-5 flex justify-items-stretch">
-                        <div class="">
-                            <h1 class="font-bold text-4xl">Истории</h1>
-                            <p>130 истории</p>
-                        </div>
-                        <div class="w-full">
+                    <Button class="bg-[#088B64] hover:bg-[#077a56] text-white">
+                        Подробнее о теме
+                    </Button>
+                </CardContent>
+            </Card>
 
+            <!-- Tags Section -->
+            <div class="mb-8">
+                <h2 class="text-xl font-semibold mb-4">Популярные теги</h2>
+                <div class="flex flex-wrap gap-2">
+                    <span 
+                        v-for="tag in allTags" 
+                        :key="tag.id"
+                        class="px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-800 cursor-pointer hover:bg-gray-200"
+                    >
+                        {{ tag.name }}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Current History -->
+            <div v-if="currentHistory">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-3xl font-bold">Текущая история</h2>
+                    <Button 
+                        @click="loadNextHistory" 
+                        :disabled="loading"
+                        class="bg-[#088B64] hover:bg-[#077a56] text-white"
+                    >
+                        {{ loading ? 'Загрузка...' : 'Следующая история' }}
+                    </Button>
+                </div>
+                
+                <Card>
+                    <CardHeader>
+                        <CardTitle class="text-2xl">{{ currentHistory.title }}</CardTitle>
+                        <div class="flex flex-wrap gap-2 mt-2">
+                            <span 
+                                v-for="tag in currentHistory.tags" 
+                                :key="tag.id"
+                                class="px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-800"
+                            >
+                                {{ tag.name }}
+                            </span>
                         </div>
-                        <button type="button" class="text-white bg-[#088B64] hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2 w-96">Подробнее о теме</button>
-                    </div>
-                    
-                </div>
-                <div>
-                    теги
-                </div>
-                <div class="p-5">
-                    <h1 class="text-4xl font-bold">Все истории</h1>
-                    <div class="bg-white w-full rounded-lg p-5">
-                            <h1 class="font-semibold text-2xl">Как я вернусля домой</h1>
-                            <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit. Consequatur ex libero qui quas, ullam, deleniti corrupti voluptates odit cum pariatur nulla repudiandae aut quidem id quaerat incidunt laboriosam sint commodi.</p>
-                            <button type="button" class="text-white bg-[#088B64] hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 me-2 mb-2">Читать полностью</button>
-                    </div>
-                </div>
-                <div>
-                    
-                </div>
+                    </CardHeader>
+                    <CardContent>
+                        <p class="text-gray-600 mb-4">{{ currentHistory.description }}</p>
+                        <Button class="bg-[#088B64] hover:bg-[#077a56] text-white">
+                            Читать полностью
+                        </Button>
+                    </CardContent>
+                </Card>
             </div>
-               
+
+            <div v-else class="text-center py-12">
+                <p class="text-gray-500">Нет доступных историй</p>
             </div>
-            
         </div>
     </AppLayout>
 </template>

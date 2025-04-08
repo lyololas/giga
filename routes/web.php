@@ -15,9 +15,14 @@ Route::get('dashboard', function () {
 Route::get('gh', function () {
     return Inertia::render('GHShow');
 })->name('gh.show');
+Route::get('gh', [GHController::class, 'index'])->name('gh.index');
+Route::get('/gh/{id}', [GHController::class, 'show'])->name('gh.show');
+
 
 Route::get('/forum', [PostsController::class, 'index'])->name('forum.index');
+
 Route::middleware('auth')->group(function () {
+    Route::post('/gh', [PostsController::class, 'store'])->name('gh.store');
     Route::get('/forum/{id}', [PostsController::class, 'show'])->name('post.show');
     Route::post('/forum/{post}/comments', [PostsController::class, 'storeComment'])->name('posts.comment.store');
     Route::post('/forum', [PostsController::class, 'store'])->name('posts.store');

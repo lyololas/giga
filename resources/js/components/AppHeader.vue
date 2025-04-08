@@ -45,8 +45,13 @@ const mainNavItems: NavItem[] = [
         icon: LayoutGrid,
     },
     {
-        title: 'Добрые истории',
+        title: 'Истории',
         href: '/gh',
+        icon: HeartHandshake,
+    },
+    {
+        title: 'В-О',
+        href: '/qa',
         icon: HeartHandshake,
     },
 ];

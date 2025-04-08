@@ -6,3 +6,4 @@
 <x-backpack::menu-item title="Good histories" icon="la la-question" :link="backpack_url('good-histories')" />
 <x-backpack::menu-item title="Users" icon="la la-question" :link="backpack_url('users')" />
 <x-backpack::menu-item title="Tags" icon="la la-question" :link="backpack_url('tags')" />
+<x-backpack::menu-item title="Questions and answers" icon="la la-question" :link="backpack_url('questions-and-answers')" />

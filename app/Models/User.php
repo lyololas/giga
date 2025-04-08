@@ -9,6 +9,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use App\Models\Comments;
 use App\Models\Post;
+use App\Models\GoodHistories;
 use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable
 {
@@ -20,7 +21,10 @@ class User extends Authenticatable
     public function comments() {
         return $this->hasMany(Comments::class);
     }
-
+    public function GoodHistorie
+    s() {
+        return $this->hasMany(Comments::class);
+    }
 
 
 

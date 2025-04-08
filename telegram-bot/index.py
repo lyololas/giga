@@ -37,7 +37,7 @@ DB_CONFIG = {
     'port': '5432',
     'connect_timeout': 5
 }
-
+print('dinaxy')
 BOT_TOKEN = "7886668986:AAEcwC6QJWykSK7-KWPak5LXVtp11cfd5QM"
 
 class DataProtection:
@@ -225,6 +225,7 @@ async def password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         logger.error(f"Error in password: {e}")
         return ConversationHandler.END
 
+# In the confirm function, modify the database insertion part:
 async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Confirm registration and save to database."""
     try:
@@ -237,15 +238,17 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             )
             return NAME
         
-       
         pseudonymized_name = DataProtection.pseudonymize(context.user_data['name'])
         pseudonymized_email = DataProtection.pseudonymize(context.user_data['email'])
 
+        # Ensure we're using the correct Telegram chat ID
+        telegram_chat_id = update.effective_chat.id  # Changed from effective_user.id
+        
         user_data = {
             'name': pseudonymized_name,
             'email': pseudonymized_email,
             'password': context.user_data['password'],
-            'telegram_chat_id': update.effective_user.id,
+            'telegram_chat_id': telegram_chat_id,
             'role': context.user_data.get('role', 'user'),
             'original_name': context.user_data['name'],  
             'original_email': context.user_data['email'] 
@@ -254,45 +257,59 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         try:
             conn = get_db_connection()
             with conn.cursor() as cursor:
+                # Check for existing user with this chat ID
                 cursor.execute(
-                    "SELECT id FROM users WHERE email = %s OR telegram_chat_id = %s",
-                    (user_data['email'], user_data['telegram_chat_id'])
+                    "SELECT id FROM users WHERE telegram_chat_id = %s",
+                    (user_data['telegram_chat_id'],)
                 )
                 if cursor.fetchone():
                     await update.message.reply_text(
-                        "⚠️ Пользователь с таким email или Telegram ID уже существует.",
+                        "⚠️ Пользователь с таким Telegram ID уже существует.",
                         reply_markup=ReplyKeyboardRemove()
                     )
                     return ConversationHandler.END
 
+                # Check for existing email
+                cursor.execute(
+                    "SELECT id FROM users WHERE email = %s",
+                    (user_data['email'],)
+                )
+                if cursor.fetchone():
+                    await update.message.reply_text(
+                        "⚠️ Пользователь с таким email уже существует.",
+                        reply_markup=ReplyKeyboardRemove()
+                    )
+                    return ConversationHandler.END
+
+                # Insert new user with BIGINT type for telegram_chat_id
                 cursor.execute(
                     """INSERT INTO users 
                     (name, email, password, telegram_chat_id, role, original_name, original_email, created_at)
-                    VALUES (%s, %s, %s, %s, %s, 
+                    VALUES (%s, %s, %s, %s::BIGINT, %s, 
                     pgp_sym_encrypt(%s::text, 'encryption_key'), 
                     pgp_sym_encrypt(%s::text, 'encryption_key'), 
                     NOW()) RETURNING id""",
                     (user_data['name'], user_data['email'], user_data['password'],
-                    user_data['telegram_chat_id'], user_data['role'],
+                    str(user_data['telegram_chat_id']), user_data['role'],  # Explicitly convert to string
                     user_data['original_name'], user_data['original_email'])
                 )
                 user_id = cursor.fetchone()[0]
                 conn.commit()
 
-
+                # Log the registration
                 cursor.execute(
-                "INSERT INTO access_logs (user_id, action, timestamp) VALUES (%s, %s, NOW())",
-                (user_id, "registration")
+                    "INSERT INTO access_logs (user_id, action, timestamp) VALUES (%s, %s, NOW())",
+                    (user_id, "registration")
                 )
                 conn.commit()
 
                 await update.message.reply_text(
                     f"🎉 Регистрация успешна!\n\n"
-                    f"Ваш ID пользователя: {user_id}",
+                    f"Ваш ID пользователя: {user_id}\n"
+                    f"Ваш Telegram Chat ID: {telegram_chat_id}",  # Show the chat ID for debugging
                     reply_markup=ReplyKeyboardRemove()
                 )
 
-              
                 if user_data['role'] == 'volunteer':
                     await update.message.reply_text(
                         "Как волонтер, вы можете:\n"
@@ -306,7 +323,8 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
         except psycopg2.Error as e:
             logger.error(f"Database error: {e}")
-            await update.message.reply_text("⚠️ Ошибка при сохранении данных. Пожалуйста, попробуйте позже.",
+            await update.message.reply_text(
+                "⚠️ Ошибка при сохранении данных. Пожалуйста, попробуйте позже.",
                 reply_markup=ReplyKeyboardRemove()
             )
             return ConversationHandler.END
@@ -321,36 +339,268 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
         
 async def request_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle user's request for help with 152-FZ compliant location sharing."""
-    conn = None 
+    """Handle user's help request and notify available volunteers."""
+    conn = None
     try:
-       
         conn = get_db_connection()
         with conn.cursor() as cursor:
+            # Verify user is registered
             cursor.execute(
-                "SELECT role FROM users WHERE telegram_chat_id = %s",
+                "SELECT id, role, original_name FROM users WHERE telegram_chat_id = %s",
                 (update.effective_user.id,)
             )
-            result = cursor.fetchone()
-            if not result or result[0] != 'user':
+            user = cursor.fetchone()
+            
+            if not user or user[1] != 'user':
                 await update.message.reply_text("Эта команда доступна только зарегистрированным пользователям.")
                 return
 
-        await update.message.reply_text(
-            "Пожалуйста, поделитесь вашим местоположением для поиска ближайшего волонтера:",
-            reply_markup=ReplyKeyboardMarkup(
-                [[KeyboardButton("📍 Поделиться местоположением", request_location=True)]],
-                one_time_keyboard=True,
-                resize_keyboard=True
+            user_id, _, user_name = user
+
+            # Check for existing active requests
+            cursor.execute(
+                "SELECT id FROM help_requests WHERE user_id = %s AND status = 'pending'",
+                (user_id,)
             )
-        )
+            if cursor.fetchone():
+                await update.message.reply_text("У вас уже есть активный запрос. Дождитесь ответа волонтера.")
+                return
+
+            # Ask for additional info if not provided
+            if not context.args:
+                await update.message.reply_text(
+                    "Пожалуйста, опишите вашу проблему после команды /help\n"
+                    "Например: /help Нужна помощь с доставкой продуктов"
+                )
+                return
+
+            additional_info = ' '.join(context.args)
+
+            # Ask for location if not provided
+            if not update.message.location:
+                await update.message.reply_text(
+                    "Пожалуйста, поделитесь вашим местоположением:",
+                    reply_markup=ReplyKeyboardMarkup(
+                        [[KeyboardButton("📍 Поделиться местоположением", request_location=True)]],
+                        one_time_keyboard=True,
+                        resize_keyboard=True
+                    )
+                )
+                # Store additional info temporarily
+                context.user_data['help_request_info'] = additional_info
+                return
+
+            # Process location
+            location = update.message.location
+            approx_lat, approx_lon = DataProtection.approximate_location(
+                location.latitude, 
+                location.longitude
+            )
+
+            # Create help request
+            cursor.execute("""
+                INSERT INTO help_requests 
+                (user_id, location, requested_at, status, additional_info)
+                VALUES (
+                    %s,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    NOW(),
+                    'pending',
+                    %s
+                )
+                RETURNING id
+            """, (user_id, approx_lon, approx_lat, additional_info))
+            request_id = cursor.fetchone()[0]
+            conn.commit()
+
+            # Notify available volunteers with improved message
+            cursor.execute("""
+                SELECT telegram_chat_id FROM users 
+                WHERE role = 'volunteer' AND available = true
+            """)
+            volunteers = cursor.fetchall()
+
+            if volunteers:
+                map_url = f"https://www.google.com/maps?q={approx_lat},{approx_lon}"
+                keyboard = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ Принять запрос", callback_data=f"accept_{request_id}"),
+                        InlineKeyboardButton("❌ Отклонить", callback_data=f"decline_{request_id}")
+                    ],
+                    [InlineKeyboardButton("📍 Посмотреть на карте", url=map_url)]
+                ])
+
+                notification_text = (
+                    f"🆘 <b>Новый запрос о помощи!</b>\n\n"
+                    f"<b>От:</b> {user_name}\n"
+                    f"<b>Описание:</b> {additional_info}\n"
+                    f"<b>Когда:</b> {datetime.now().strftime('%H:%M %d.%m.%Y')}\n\n"
+                    f"📍 <a href='{map_url}'>Местоположение на карте</a>"
+                )
+
+                for volunteer in volunteers:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=volunteer[0],
+                            text=notification_text,
+                            parse_mode='HTML',
+                            reply_markup=keyboard
+                        )
+                    except Exception as e:
+                        logger.error(f"Error notifying volunteer {volunteer[0]}: {e}")
+
+                await update.message.reply_text(
+                    "✅ Ваш запрос отправлен волонтерам. Ожидайте ответа..."
+                )
+            else:
+                await update.message.reply_text(
+                    "😔 В данный момент нет доступных волонтеров. Попробуйте позже."
+                )
+
     except Exception as e:
         logger.error(f"Error in request_help: {e}")
-        await update.message.reply_text("⚠️ Произошла ошибка. Пожалуйста, попробуйте позже.")
+        await update.message.reply_text("⚠️ Произошла ошибка при обработке запроса.")
     finally:
         if conn:
             conn.close()
 
+async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Process user location for help request."""
+    conn = None
+    try:
+        # Check if this is part of a help request flow
+        if 'help_request_info' not in context.user_data:
+            return
+
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, original_name FROM users WHERE telegram_chat_id = %s",
+                (update.effective_user.id,)
+            )
+            user = cursor.fetchone()
+            if not user:
+                await update.message.reply_text("Please complete registration first")
+                return
+
+            user_id, user_name = user
+            additional_info = context.user_data['help_request_info']
+            
+            location = update.message.location
+            if not location:
+                await update.message.reply_text("Please share your location")
+                return
+            
+            approx_lat, approx_lon = DataProtection.approximate_location(
+                location.latitude, 
+                location.longitude
+            )
+
+            # Create help request
+            cursor.execute("""
+                INSERT INTO help_requests 
+                (user_id, location, requested_at, status, additional_info)
+                VALUES (
+                    %s,
+                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                    NOW(),
+                    'pending',
+                    %s
+                )
+                RETURNING id
+            """, (user_id, approx_lon, approx_lat, additional_info))
+            request_id = cursor.fetchone()[0]
+            conn.commit()
+
+            # Notify volunteers
+            cursor.execute("""
+                SELECT telegram_chat_id FROM users 
+                WHERE role = 'volunteer' AND available = true
+            """)
+            volunteers = cursor.fetchall()
+
+            if volunteers:
+                map_url = f"https://www.google.com/maps?q={approx_lat},{approx_lon}"
+                keyboard = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ Принять запрос", callback_data=f"accept_{request_id}"),
+                        InlineKeyboardButton("❌ Отклонить", callback_data=f"decline_{request_id}")
+                    ],
+                    [InlineKeyboardButton("📍 Посмотреть на карте", url=map_url)]
+                ])
+                notification_text = (
+                    f"🆘 <b>Новый запрос о помощи!</b>\n\n"
+                    f"<b>От:</b> {user_name}\n"
+                    f"<b>Описание:</b> {additional_info}\n"
+                    f"<b>Когда:</b> {datetime.now().strftime('%H:%M %d.%m.%Y')}\n\n"
+                    f"📍 <a href='{map_url}'>Местоположение на карте</a>"
+                )
+
+                for volunteer in volunteers:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=volunteer[0],
+                            text=notification_text,
+                            parse_mode='HTML',
+                            reply_markup=keyboard
+                        )
+                    except Exception as e:
+                        logger.error(f"Error notifying volunteer {volunteer[0]}: {e}")
+
+                await update.message.reply_text(
+                    "✅ Ваш запрос отправлен волонтерам. Ожидайте ответа..."
+                )
+            else:
+                await update.message.reply_text(
+                    "😔 В данный момент нет доступных волонтеров. Попробуйте позже."
+                )
+
+    except Exception as e:
+        logger.error(f"Error in handle_location: {e}")
+        await update.message.reply_text("Error processing your request")
+    finally:
+        if conn:
+            conn.close()
+        # Clear temporary data
+        if 'help_request_info' in context.user_data:
+            context.user_data.pop('help_request_info')
+async def check_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Check volunteer status and active requests."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT available FROM users 
+                WHERE telegram_chat_id = %s AND role = 'volunteer'
+            """, (update.effective_user.id,))
+            
+            volunteer = cursor.fetchone()
+            if not volunteer:
+                await update.message.reply_text("Вы не зарегистрированы как волонтер.")
+                return
+
+            available = volunteer[0]
+            status = "доступен" if available else "недоступен"
+            
+            cursor.execute("""
+                SELECT COUNT(*) FROM help_requests 
+                WHERE status = 'pending'
+            """)
+            pending_requests = cursor.fetchone()[0]
+            
+            await update.message.reply_text(
+                f"Ваш статус: {status}\n"
+                f"Активных запросов: {pending_requests}\n\n"
+                "Используйте /available чтобы изменить статус"
+            )
+
+    except Exception as e:
+        logger.error(f"Error checking status: {e}")
+        await update.message.reply_text("⚠️ Ошибка при проверке статуса.")
+    finally:
+        if conn:
+            conn.close()
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Process user location and find available volunteers"""
     conn = None
@@ -479,7 +729,7 @@ async def handle_request_view(update: Update, context: ContextTypes.DEFAULT_TYPE
         if conn:
             conn.close()
 async def handle_request_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle volunteer accepting/declining requests"""
+    """Handle volunteer accepting/declining requests with proper chat initiation"""
     query = update.callback_query
     await query.answer()
     
@@ -490,68 +740,178 @@ async def handle_request_action(update: Update, context: ContextTypes.DEFAULT_TY
         
         conn = get_db_connection()
         with conn.cursor() as cursor:
+            # Get full request details with FOR UPDATE lock
             cursor.execute("""
-                SELECT hr.user_id, u.telegram_chat_id as user_chat_id,
-                       v.telegram_chat_id as volunteer_chat_id
+                SELECT hr.user_id, u.telegram_chat_id, u.original_name,
+                       ST_X(hr.location::geometry) as lon,
+                       ST_Y(hr.location::geometry) as lat,
+                       hr.additional_info
                 FROM help_requests hr
                 JOIN users u ON hr.user_id = u.id
-                JOIN users v ON v.telegram_chat_id = %s
                 WHERE hr.id = %s AND hr.status = 'pending'
-            """, (query.from_user.id, req_id))
+                FOR UPDATE
+            """, (req_id,))
             
             request = cursor.fetchone()
             if not request:
-                await query.edit_message_text("Этот запрос уже был обработан.")
+                await query.edit_message_text("This request has already been processed or doesn't exist.")
                 return
 
-            user_id, user_chat_id, volunteer_id = request
+            user_id, user_chat_id, user_name, lon, lat, additional_info = request
+            volunteer_chat_id = query.from_user.id
 
             if action == 'accept':
-                cursor.execute("""
-                    UPDATE help_requests
-                    SET status = 'accepted',
-                        volunteer_id = %s,
-                        accepted_at = NOW()
-                    WHERE id = %s
-                    RETURNING id
-                """, (volunteer_id, req_id))
-                conn.commit()
+                try:
+                    # Update request status
+                    cursor.execute("""
+                        UPDATE help_requests
+                        SET status = 'accepted',
+                            volunteer_id = (SELECT id FROM users WHERE telegram_chat_id = %s),
+                            accepted_at = NOW()
+                        WHERE id = %s
+                        RETURNING id
+                    """, (volunteer_chat_id, req_id))
+                    
+                    if not cursor.fetchone():
+                        await query.edit_message_text("Error updating request status")
+                        return
+                    
+                    # Create chat session
+                    chat_token = hashlib.sha256(f"{user_id}{volunteer_chat_id}{datetime.now()}".encode()).hexdigest()[:8]
+                    cursor.execute("""
+                        INSERT INTO chats (user_id, volunteer_id, token, created_at)
+                        VALUES (%s, (SELECT id FROM users WHERE telegram_chat_id = %s), %s, NOW())
+                        RETURNING id
+                    """, (user_id, volunteer_chat_id, chat_token))
+                    
+                    if not cursor.fetchone():
+                        conn.rollback()
+                        await query.edit_message_text("Error creating chat session")
+                        return
+                        
+                    conn.commit()
 
-                chat_token = hashlib.sha256(f"{user_id}{volunteer_id}{datetime.now()}".encode()).hexdigest()[:8]
-                cursor.execute("""
-                    INSERT INTO chats (user_id, volunteer_id, token, created_at)
-                    VALUES (%s, %s, %s, NOW())
-                """, (user_id, volunteer_id, chat_token))
-                conn.commit()
+                    # Store chat token in context for both parties
+                    context.user_data['active_chat'] = chat_token
+                    
+                    # Get volunteer context to store chat token
+                    volunteer_context = context.application.user_data.get(volunteer_chat_id, {})
+                    volunteer_context['active_chat'] = chat_token
+                    context.application.user_data[volunteer_chat_id] = volunteer_context
+                    
+                    # Get user context to store chat token
+                    user_context = context.application.user_data.get(user_chat_id, {})
+                    user_context['active_chat'] = chat_token
+                    context.application.user_data[user_chat_id] = user_context
 
-      
-                await context.bot.send_message(
-                    chat_id=user_chat_id,
-                    text=f"🎉 Ваш запрос принят! Волонтер скоро свяжется с вами.\n\n"
-                         f"Для общения используйте команду /chat_{chat_token}"
-                )
+                    # Prepare location info
+                    map_url = f"https://maps.google.com/?q={lat},{lon}"
 
-                await query.edit_message_text(
-                    text=f"✅ Вы приняли запрос. Для общения используйте /chat_{chat_token}",
-                    reply_markup=None
-                )
+                    # Notify user
+                    try:
+                        await context.bot.send_message(
+                            chat_id=user_chat_id,
+                            text=f"🟢 <b>Ваш запрос о помощи принят!</b>\n\n"
+                                 f"💬 <b>Чат с волонтером начат. Просто отправляйте сообщения в этот чат.</b>\n"
+                                 f"Ваш запрос: {additional_info}",
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"Error notifying user: {e}")
+
+                    # Notify volunteer
+                    try:
+                        await query.edit_message_text(
+                            text=f"✅ <b>Вы приняли запрос от {user_name}</b>\n\n"
+                                 f"💬 <b>Чат с пользователем начат. Просто отправляйте сообщения в этот чат.</b>\n"
+                                 f"Запрос: {additional_info}",
+                            parse_mode='HTML'
+                        )
+
+                        # Send initial message to volunteer
+                        await context.bot.send_message(
+                            chat_id=volunteer_chat_id,
+                            text=f"💬 <b>Чат с {user_name} начат</b>\n"
+                                 "Отправьте любое сообщение здесь для общения.\n"
+                                 f"Запрос: {additional_info}\n"
+                                 "Используйте /endchat для завершения.",
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"Error notifying volunteer: {e}")
+
+                except Exception as e:
+                    conn.rollback()
+                    logger.error(f"Database error during acceptance: {e}")
+                    await query.edit_message_text("⚠️ Ошибка при обработке запроса. Попробуйте снова.")
+                    raise
 
             elif action == 'decline':
                 await query.edit_message_text("Вы отклонили этот запрос.")
 
+    except psycopg2.Error as e:
+        logger.error(f"Database error in handle_request_action: {e}")
+        await query.edit_message_text("⚠️ Ошибка базы данных. Попробуйте позже.")
     except Exception as e:
-        logger.error(f"Error handling request action: {e}")
+        logger.error(f"Error in handle_request_action: {e}")
         await query.edit_message_text("⚠️ Произошла ошибка при обработке запроса.")
     finally:
         if conn:
             conn.close()
-
 async def end_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     chat_token = context.user_data.get('active_chat')
     if not chat_token:
         await update.message.reply_text("Нет активного чата для завершения.")
         return ConversationHandler.END
     
+async def call_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Initiate a call to user"""
+    try:
+        user_id = context.args[0]
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT original_name, phone FROM users WHERE id = %s
+            """, (user_id,))
+            user = cursor.fetchone()
+            
+            if user:
+                name, phone = user
+                await update.message.reply_text(
+                    f"📞 Call {name} at: {phone or 'No phone number provided'}\n\n"
+                    "After calling, please:\n"
+                    "1. Confirm arrival with /arrived_{user_id}\n"
+                    "2. Mark complete with /complete_{request_id}"
+                )
+            else:
+                await update.message.reply_text("User not found")
+    except Exception as e:
+        logger.error(f"Call user error: {e}")
+        await update.message.reply_text("Error fetching user info")
+
+async def mark_complete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mark request as completed"""
+    try:
+        req_id = context.args[0]
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                UPDATE help_requests 
+                SET status = 'completed', completed_at = NOW() 
+                WHERE id = %s
+                RETURNING user_id
+            """, (req_id,))
+            
+            if cursor.fetchone():
+                conn.commit()
+                await update.message.reply_text("✅ Request marked as completed")
+            else:
+                await update.message.reply_text("Request not found")
+    except Exception as e:
+        logger.error(f"Complete error: {e}")
+        await update.message.reply_text("Error updating request")
+
+
     conn = None
     try:
         conn = get_db_connection()
@@ -612,7 +972,6 @@ async def show_help_requests(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.message.reply_text("You need to be an available volunteer to view requests")
                 return
 
-          
             cursor.execute("""
                 SELECT hr.id, u.original_name, hr.requested_at,
                        ST_X(hr.location::geometry) as lon,
@@ -628,25 +987,25 @@ async def show_help_requests(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.message.reply_text("No help requests available")
                 return
 
-            keyboard = []
             for req_id, name, req_time, lon, lat in requests:
                 req_time = req_time.strftime("%H:%M")
                 map_url = f"https://www.google.com/maps?q={lat},{lon}"
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"Request from {name} at {req_time}",
-                        callback_data=f"view_{req_id}"
-                    ),
-                    InlineKeyboardButton(
-                        "📍 View Location",
-                        url=map_url
-                    )
+                keyboard = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ Accept", callback_data=f"accept_{req_id}"),
+                        InlineKeyboardButton("❌ Decline", callback_data=f"decline_{req_id}")
+                    ],
+                    [InlineKeyboardButton("📍 View Location", url=map_url)]
                 ])
+                await update.message.reply_text(
+                    f"Request from {name} at {req_time}\n"
+                    f"Location: {map_url}",
+                    reply_markup=keyboard
+                )
 
-            await update.message.reply_text(
-                "Available help requests:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+    except psycopg2.Error as e:
+        logger.error(f"Database error: {e}")
+        await update.message.reply_text("Error loading requests")
     except Exception as e:
         logger.error(f"Error showing requests: {e}")
         await update.message.reply_text("Error loading requests")
@@ -669,7 +1028,7 @@ async def start_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         conn = get_db_connection()
         with conn.cursor() as cursor:
             cursor.execute("""
-                SELECT c.token, u.original_name 
+                SELECT c.token, u.original_name     
                 FROM chats c
                 JOIN users u ON c.user_id = u.id
                 WHERE c.volunteer_id = (
@@ -750,53 +1109,67 @@ async def join_chat(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_tok
 
 
 async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle incoming chat messages."""
+    """Handle incoming chat messages between user and volunteer."""
     conn = None
     try:
         chat_token = context.user_data.get('active_chat')
         if not chat_token:
-            await update.message.reply_text("Активный чат не найден. Используйте /chat чтобы начать.")
+            await update.message.reply_text("Нет активного чата. Используйте /chat для начала.")
             return ConversationHandler.END
 
         conn = get_db_connection()
         with conn.cursor() as cursor:
             # Get chat participants
             cursor.execute("""
-                SELECT u.id, u.telegram_chat_id, u.role 
+                SELECT 
+                    u.telegram_chat_id as user_chat_id,
+                    v.telegram_chat_id as volunteer_chat_id,
+                    u.original_name as user_name,
+                    v.original_name as volunteer_name
                 FROM chats c
-                JOIN users u ON u.id IN (c.user_id, c.volunteer_id)
+                JOIN users u ON c.user_id = u.id
+                JOIN users v ON c.volunteer_id = v.id
                 WHERE c.token = %s AND c.ended_at IS NULL
             """, (chat_token,))
-            participants = cursor.fetchall()
             
-            if len(participants) != 2:
+            chat = cursor.fetchone()
+            if not chat:
                 await update.message.reply_text("Чат завершен или не существует.")
                 context.user_data.pop('active_chat', None)
                 return ConversationHandler.END
 
-            # Find the other participant
+            user_chat_id, volunteer_chat_id, user_name, volunteer_name = chat
             current_user_id = update.effective_user.id
-            for participant in participants:
-                if participant[1] != current_user_id:
-                    recipient_id = participant[1]
-                    recipient_role = participant[2]
-                    break
+
+            # Determine recipient and sender info
+            if current_user_id == user_chat_id:
+                recipient_id = volunteer_chat_id
+                sender_name = user_name
+                sender_role = "Пользователь"
             else:
-                await update.message.reply_text("Не удалось найти участника чата.")
+                recipient_id = user_chat_id
+                sender_name = volunteer_name
+                sender_role = "Волонтер"
+
+            # Forward message with sender info
+            try:
+                await context.bot.send_message(
+                    chat_id=recipient_id,
+                    text=f"{sender_role} {sender_name}:\n{update.message.text}"
+                )
+            except Exception as e:
+                logger.error(f"Error forwarding message: {e}")
+                await update.message.reply_text("Не удалось отправить сообщение. Возможно, пользователь заблокировал бота.")
                 return CHAT_MESSAGING
 
-            # Forward the message
-            sender_role = "volunteer" if recipient_role == "user" else "user"
-            await context.bot.send_message(
-                chat_id=recipient_id,
-                text=f"{'Волонтер' if sender_role == 'volunteer' else 'Пользователь'}: {update.message.text}"
-            )
-            
-            # Log the message in database
+            # Log message in database
             cursor.execute("""
-                INSERT INTO chat_messages 
-                (chat_token, sender_id, message, sent_at)
-                VALUES (
+                INSERT INTO chat_messages (
+                    chat_token, 
+                    sender_id,
+                    message,
+                    sent_at
+                ) VALUES (
                     %s,
                     (SELECT id FROM users WHERE telegram_chat_id = %s),
                     %s,
@@ -814,36 +1187,101 @@ async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     return CHAT_MESSAGING
     
 async def handle_volunteer_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Process volunteer's response to help request."""
+    """Process volunteer's response to help request with improved error handling."""
     query = update.callback_query
     await query.answer()
     
     conn = None
     try:
-        action, user_id = query.data.split('_')
-        if action == 'accept':
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="Волонтер принял ваш запрос и уже в пути!"
-            )
+        action, req_id = query.data.split('_')
+        req_id = int(req_id)
+        
+        if action not in ['accept', 'decline']:
+            await query.edit_message_text("⚠️ Неизвестное действие.")
+            return
+
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            # Get request details with user chat ID
+            cursor.execute("""
+                SELECT hr.id, u.telegram_chat_id, hr.status
+                FROM help_requests hr
+                JOIN users u ON hr.user_id = u.id
+                WHERE hr.id = %s
+                FOR UPDATE
+            """, (req_id,))
             
-            conn = get_db_connection()
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE help_requests
-                    SET accepted_at = NOW(), status = 'accepted'
-                    WHERE user_id = %s AND status = 'pending'
-                    RETURNING id
-                """, (user_id,))
-                
-                if cursor.fetchone():
+            request = cursor.fetchone()
+            if not request:
+                await query.edit_message_text("Запрос не найден или уже обработан.")
+                return
+
+            _, user_chat_id, current_status = request
+            
+            if current_status != 'pending':
+                await query.edit_message_text("Этот запрос уже был обработан.")
+                return
+
+            if action == 'accept':
+                try:
+                    # Update request status
+                    cursor.execute("""
+                        UPDATE help_requests
+                        SET status = 'accepted',
+                            volunteer_id = (SELECT id FROM users WHERE telegram_chat_id = %s),
+                            accepted_at = NOW()
+                        WHERE id = %s
+                        RETURNING id
+                    """, (query.from_user.id, req_id))
+                    
+                    if not cursor.fetchone():
+                        await query.edit_message_text("Ошибка при обновлении статуса запроса")
+                        return
+                    
                     conn.commit()
-                    await query.edit_message_text("Вы успешно приняли запрос о помощи!")
-                else:
-                    await query.edit_message_text("Этот запрос уже был обработан.")
+                    try:
+                        await context.bot.send_message(
+                            chat_id=user_chat_id,
+                            text="🟢 Волонтер принял ваш запрос о помощи и уже в пути!"
+                        )
+                        await query.edit_message_text(" ")
+                    except Exception as e:
+                        logger.error(f"Error notifying user {user_chat_id}: {e}")
+                        await query.edit_message_text(
+                            "✅ Вы приняли запрос, но не удалось уведомить пользователя. "
+                            "Попробуйте связаться с ним другим способом."
+                        )
+
+                except Exception as e:
+                    conn.rollback()
+                    logger.error(f"Database error during acceptance: {e}")
+                    await query.edit_message_text("⚠️ Ошибка при обработке запроса. Попробуйте снова.")
+                    raise
+
+            elif action == 'decline':
+                try:
+                   
+                    cursor.execute("""
+                        UPDATE help_requests
+                        SET status = 'declined',
+                            declined_at = NOW()
+                        WHERE id = %s
+                    """, (req_id,))
+                    conn.commit()
+                    await query.edit_message_text("Вы отклонили этот запрос.")
+                except Exception as e:
+                    conn.rollback()
+                    logger.error(f"Error declining request: {e}")
+                    await query.edit_message_text("⚠️ Ошибка при отклонении запроса.")
+
+    except ValueError:
+        await query.edit_message_text("⚠️ Неверный формат запроса.")
+    except psycopg2.Error as e:
+        logger.error(f"Database error in handle_volunteer_response: {e}")
+        await query.edit_message_text("⚠️ Ошибка базы данных. Попробуйте позже.")
     except Exception as e:
-        logger.error(f"Error handling volunteer response: {e}")
-        await query.edit_message_text("⚠️ Произошла ошибка при обработке вашего ответа.")
+        logger.error(f"Error in handle_volunteer_response: {e}")
+        await query.edit_message_text("⚠️ Произошла ошибка при обработке запроса.")
     finally:
         if conn:
             conn.close()
@@ -904,20 +1342,23 @@ def main() -> None:
 
     # Chat conversation handler (only add this once!)
     chat_handler = ConversationHandler(
-        entry_points=[CommandHandler("chat", start_chat)],
-        states={
-            CHAT_MESSAGING: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_chat_message),
-                MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL, handle_chat_message)
-            ]
-        },
-        fallbacks=[CommandHandler("endchat", end_chat)],
-    )
+    entry_points=[CommandHandler("chat", start_chat)],
+    states={
+        CHAT_MESSAGING: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_chat_message),
+            MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL, handle_chat_message)
+        ]
+    },
+    fallbacks=[CommandHandler("endchat", end_chat)],
+)
     
     application.add_handler(conv_handler)
     application.add_handler(chat_handler)  
+    application.add_handler(CommandHandler("status", check_status))
     application.add_handler(CommandHandler("help", request_help))
     application.add_handler(CommandHandler("available", toggle_availability))
+    application.add_handler(CommandHandler("call_user", call_user))
+    application.add_handler(CommandHandler("complete", mark_complete))
     application.add_handler(MessageHandler(filters.LOCATION, handle_location))
     application.add_handler(CallbackQueryHandler(handle_volunteer_response))
     application.add_handler(CallbackQueryHandler(handle_request_action, pattern="^(accept|decline)_"))
@@ -934,7 +1375,7 @@ def main() -> None:
     except Conflict:
         logger.error("Another instance is already running. Exiting...")
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"Fatal error: {e}")   
     finally:
         logger.info("Bot stopped")
 

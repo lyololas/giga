@@ -5,9 +5,8 @@ namespace App\Models;
 use Backpack\CRUD\app\Models\Traits\CrudTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use App\Models\User;
-use App\Models\Post;
-class Comments extends Model
+
+class QuestionsAndAnswers extends Model
 {
     use CrudTrait;
     use HasFactory;
@@ -18,12 +17,17 @@ class Comments extends Model
     |--------------------------------------------------------------------------
     */
 
-    protected $table = 'comments';
-    // protected $primaryKey = 'id';
-    // public $timestamps = false;
+    protected $table = 'questions_and_answers';
+
     protected $guarded = ['id'];
-    // protected $fillable = [];
-    // protected $hidden = [];
+    protected $fillable = [
+        'title',
+        'description',
+        'user_id',
+        'is_moderated',
+        'image'
+
+    ];
 
     /*
     |--------------------------------------------------------------------------
@@ -36,15 +40,7 @@ class Comments extends Model
     | RELATIONS
     |--------------------------------------------------------------------------
     */
-    public function user() {
-        return $this->belongsTo(User::class);
-    }
-    public function post() {
-        return $this->belongsTo(Post::class);
-    }
-    public function goodhistories() {
-        return $this->belongsTo(Post::class);
-    }
+
     /*
     |--------------------------------------------------------------------------
     | SCOPES

@@ -21,6 +21,7 @@ Route::group([
     Route::crud('good-histories', 'GoodHistoriesCrudController');
     Route::crud('users', 'UsersCrudController');
     Route::crud('tags', 'TagsCrudController');
+    Route::crud('questions-and-answers', 'QuestionsAndAnswersCrudController');
 }); // this should be the absolute last line of this file
 
 /**
