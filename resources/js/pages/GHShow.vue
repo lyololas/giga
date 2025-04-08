@@ -13,10 +13,7 @@ const props = defineProps<{
 }>();
 
 const breadcrumbs: BreadcrumbItem[] = [
-    {
-        title: 'Good Histories',
-        href: '/gh',
-    },
+    { title: 'Good Histories', href: '/good-histories' }
 ];
 
 const currentHistory = ref(props.currentHistory);
@@ -25,9 +22,8 @@ const loading = ref(false);
 const loadNextHistory = async () => {
     loading.value = true;
     try {
-        const response = await fetch('/api/good-histories/random');
-        const data = await response.json();
-        currentHistory.value = data;
+        const response = await router.get('/good-histories/random');
+        currentHistory.value = response.props.currentHistory;
     } catch (error) {
         console.error('Error loading next history:', error);
     } finally {
@@ -55,9 +51,7 @@ const loadNextHistory = async () => {
                         <CardTitle class="text-3xl font-bold">Истории добрых дел</CardTitle>
                         <CardDescription>{{ totalHistories }} историй доступно</CardDescription>
                     </div>
-                    <Button class="bg-[#088B64] hover:bg-[#077a56] text-white">
-                        Подробнее о теме
-                    </Button>
+                   
                 </CardContent>
             </Card>
 
@@ -75,19 +69,8 @@ const loadNextHistory = async () => {
                 </div>
             </div>
 
-            <!-- Current History -->
             <div v-if="currentHistory">
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-3xl font-bold">Текущая история</h2>
-                    <Button 
-                        @click="loadNextHistory" 
-                        :disabled="loading"
-                        class="bg-[#088B64] hover:bg-[#077a56] text-white"
-                    >
-                        {{ loading ? 'Загрузка...' : 'Следующая история' }}
-                    </Button>
-                </div>
-                
+                <p class="text-gray-500 mb-2" v-if="currentHistory.author">Автор: {{ currentHistory.author }}</p>
                 <Card>
                     <CardHeader>
                         <CardTitle class="text-2xl">{{ currentHistory.title }}</CardTitle>

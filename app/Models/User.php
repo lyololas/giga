@@ -21,8 +21,7 @@ class User extends Authenticatable
     public function comments() {
         return $this->hasMany(Comments::class);
     }
-    public function GoodHistorie
-    s() {
+    public function GoodHistories() {
         return $this->hasMany(Comments::class);
     }
 
