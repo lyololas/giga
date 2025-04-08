@@ -1,0 +1,194 @@
+import logging
+import psycopg2
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ConversationHandler,
+    ContextTypes,
+    filters
+)
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+NAME, EMAIL, PASSWORD, CONFIRM = range(4)
+
+# Database Configuration - Matches Laravel Sail's default PostgreSQL config
+DB_CONFIG = {
+    'dbname': 'laravel',
+    'user': 'sail',
+    'password': 'password',
+    'host': 'pgsql',  # This is the service name in docker-compose
+    'port': '5432'
+}
+
+BOT_TOKEN = "7886668986:AAEcwC6QJWykSK7-KWPak5LXVtp11cfd5QM"
+
+def get_db_connection():
+    """Establish database connection"""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        return conn
+    except Exception as e:
+        logger.error(f"Database connection error: {e}")
+        return None
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start the conversation and ask for name."""
+    # Store the chat ID for later use
+    context.user_data['telegram_chat_id'] = update.message.chat_id
+    
+    await update.message.reply_text(
+        "👋 Добро пожаловать в бот регистрации!\n\n"
+        "Пожалуйста, введите ваше полное имя:",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return NAME
+
+async def name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Store the name and ask for email."""
+    context.user_data['name'] = update.message.text
+    await update.message.reply_text(
+        "📧 Отлично! Теперь введите ваш адрес электронной почты:",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return EMAIL
+
+async def email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Store the email and ask for password."""
+    email = update.message.text
+    if "@" not in email or "." not in email:
+        await update.message.reply_text("⚠️ Пожалуйста, введите действительный адрес электронной почты:")
+        return EMAIL
+    
+    context.user_data['email'] = email
+    await update.message.reply_text(
+        "🔒 Теперь создайте пароль (мин. 8 символов):",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return PASSWORD
+
+async def password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Store the password and ask for confirmation."""
+    password = update.message.text
+    if len(password) < 8:
+        await update.message.reply_text("⚠️ Пароль должен содержать не менее 8 символов. Пожалуйста, попробуйте снова:")
+        return PASSWORD
+    
+    context.user_data['password'] = password
+
+    reply_keyboard = [["✅ Да", "❌ Нет"]]
+    await update.message.reply_text(
+        f"Пожалуйста, подтвердите ваши данные:\n\n"
+        f"Имя: {context.user_data['name']}\n"
+        f"Электронная почта: {context.user_data['email']}\n\n"
+        f"Это правильно?",
+        reply_markup=ReplyKeyboardMarkup(
+            reply_keyboard, 
+            one_time_keyboard=True,
+            resize_keyboard=True
+        )
+    )
+    return CONFIRM
+
+async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Confirm registration and save to database."""
+    user_choice = update.message.text
+    
+    if user_choice == "❌ Нет":
+        await update.message.reply_text(
+            "🔄 Давайте начнем заново. Пожалуйста, введите ваше полное имя:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return NAME
+    
+    user_data = {
+        'name': context.user_data['name'],
+        'email': context.user_data['email'],
+        'password': context.user_data['password'],
+        'telegram_chat_id': context.user_data['telegram_chat_id']
+    }
+
+    conn = get_db_connection()
+    if not conn:
+        await update.message.reply_text(
+            "⚠️ Ошибка подключения к базе данных. Пожалуйста, попробуйте позже.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return ConversationHandler.END
+
+    try:
+        with conn.cursor() as cursor:
+            # Check if user exists
+            cursor.execute(
+                "SELECT id FROM users WHERE email = %s OR telegram_chat_id = %s",
+                (user_data['email'], user_data['telegram_chat_id'])
+            )
+            if cursor.fetchone():
+                await update.message.reply_text(
+                    "⚠️ Пользователь с таким email или Telegram ID уже существует.",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+                return ConversationHandler.END
+
+            # Insert new user
+            cursor.execute(
+                """INSERT INTO users (name, email, password, telegram_chat_id, created_at)
+                VALUES (%s, %s, %s, %s, NOW()) RETURNING id""",
+                (user_data['name'], user_data['email'], user_data['password'], 
+                 user_data['telegram_chat_id'])
+            )
+            user_id = cursor.fetchone()[0]
+            conn.commit()
+
+            await update.message.reply_text(
+                f"🎉 Регистрация успешна!\n\n"
+                f"Ваш ID пользователя: {user_id}",
+                reply_markup=ReplyKeyboardRemove()
+            )
+
+    except Exception as e:
+        logger.error(f"Database error: {e}")
+        await update.message.reply_text(
+            "⚠️ Ошибка при сохранении данных. Пожалуйста, попробуйте позже.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+    finally:
+        if conn:
+            conn.close()
+    
+    return ConversationHandler.END
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel the conversation."""
+    await update.message.reply_text(
+        "Регистрация отменена.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return ConversationHandler.END
+
+def main() -> None:
+    """Run the bot."""
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, name)],
+            EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, email)],
+            PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, password)],
+            CONFIRM: [MessageHandler(filters.Regex("^(✅ Да|❌ Нет)$"), confirm)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    
+    application.add_handler(conv_handler)   
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
