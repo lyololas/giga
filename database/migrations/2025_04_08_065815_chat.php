@@ -16,7 +16,7 @@ return new class extends Migration
         $table->foreignId('user_id')->constrained()->onDelete('cascade');
         $table->foreignId('volunteer_id')->constrained('users')->onDelete('cascade');
         $table->foreignId('help_request_id')->constrained('help_requests')->onDelete('cascade'); // Changed to non-nullable
-        $table->string('token', 64)->unique(); // Increased length for security
+        $table->string('token', 64)->unique(); 
         $table->timestamp('started_at')->useCurrent();
         $table->timestamp('ended_at')->nullable();
         $table->timestamps();

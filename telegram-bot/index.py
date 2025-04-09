@@ -16,6 +16,12 @@ from datetime import datetime, timedelta
 import hashlib
 import time
 
+class ChatTokenFilter(filters.MessageFilter):
+    def filter(self, message):
+        return message.text and message.text.startswith('/chat_')
+
+chat_token_filter = ChatTokenFilter()
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
@@ -998,26 +1004,56 @@ async def show_help_requests(update: Update, context: ContextTypes.DEFAULT_TYPE)
     finally:
         if conn:
             conn.close()
-async def start_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start chat session with proper token validation"""
+async def debug_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Please provide a chat token")
+        return
+    
+    chat_token = context.args[0]
+    conn = None
     try:
-        # Extract token from command
-        if not context.args:
-            await update.message.reply_text("Usage: /chat_YOURTOKEN")
-            return ConversationHandler.END
+        conn = get_db_connection()
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT c.id, c.token, u.original_name as user_name, 
+                       v.original_name as volunteer_name
+                FROM chats c
+                JOIN users u ON c.user_id = u.id
+                JOIN users v ON c.volunteer_id = v.id
+                WHERE c.token = %s AND c.ended_at IS NULL
+            """, (chat_token,))
+            chat = cursor.fetchone()
             
-        chat_token = context.args[0]
-        user_id = update.effective_user.id
+            if chat:
+                await update.message.reply_text(
+                    f"Chat found:\n"
+                    f"ID: {chat[0]}\n"
+                    f"Token: {chat[1]}\n"
+                    f"User: {chat[2]}\n"
+                    f"Volunteer: {chat[3]}"
+                )
+            else:
+                await update.message.reply_text("❌ No active chat found with this token")
+    except Exception as e:
+        logger.error(f"Debug error: {e}")
+        await update.message.reply_text("⚠️ Debug error occurred")
+    finally:
+        if conn:
+            conn.close()
+
+
+async def start_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start chat session with proper ID validation"""
+    conn = None
+    try:
+        # Extract the token from the message
+        chat_token = update.message.text[6:]  # Remove '/chat_' from the message
         
         conn = get_db_connection()
         with conn.cursor() as cursor:
-            # Verify chat exists and user is participant
+            # Verify chat exists with proper relations
             cursor.execute("""
-                SELECT c.id, 
-                    u.telegram_chat_id as user_id,
-                    v.telegram_chat_id as volunteer_id,
-                    u.original_name as user_name,
-                    v.original_name as volunteer_name
+                SELECT c.id, u.telegram_chat_id, v.telegram_chat_id
                 FROM chats c
                 JOIN users u ON c.user_id = u.id
                 JOIN users v ON c.volunteer_id = v.id
@@ -1025,46 +1061,50 @@ async def start_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             """, (chat_token,))
             
             chat = cursor.fetchone()
-            
             if not chat:
-                await update.message.reply_text("❌ Invalid chat token or chat ended")
+                await update.message.reply_text("🚫 Чат не найден")
                 return ConversationHandler.END
-                
-            chat_id, user_tg_id, volunteer_tg_id, user_name, volunteer_name = chat
-            
-            # Determine if current user is user or volunteer
-            if user_id == user_tg_id:
-                other_party_id = volunteer_tg_id
-                other_party_name = volunteer_name
-            elif user_id == volunteer_tg_id:
-                other_party_id = user_tg_id
-                other_party_name = user_name
-            else:
-                await update.message.reply_text("❌ You're not a participant in this chat")
+
+            chat_id, user_tg_id, volunteer_tg_id = chat
+            current_tg_id = update.effective_user.id
+
+            # Validate participant
+            if current_tg_id not in (user_tg_id, volunteer_tg_id):
+                await update.message.reply_text("🚫 Нет доступа к чату")
                 return ConversationHandler.END
-                
+
+            # Get other party's info
+            other_tg_id = volunteer_tg_id if current_tg_id == user_tg_id else user_tg_id
+            cursor.execute("""
+                SELECT original_name FROM users 
+                WHERE telegram_chat_id = %s
+            """, (other_tg_id,))
+            other_name = cursor.fetchone()[0]
+
             # Store chat context
             context.user_data['active_chat'] = {
                 'chat_id': chat_id,
-                'other_party_id': other_party_id,
-                'other_party_name': other_party_name
+                'other_tg_id': other_tg_id,
+                'other_name': other_name
             }
-            
+
             await update.message.reply_text(
-                f"💬 Chat started with {other_party_name}!\n"
-                "Send messages normally - they'll be forwarded.\n"
-                "Use /endchat to finish."
+                f"💬 Чат с {other_name} открыт!\n"
+                "Пишите сообщения - они будут пересланы.\n"
+                "Для завершения используйте /endchat"
             )
-            
             return CHAT_MESSAGING
-            
+
     except Exception as e:
-        logger.error(f"Error starting chat: {str(e)}")
-        await update.message.reply_text("⚠️ Error starting chat")
+        logger.error(f"Chat start error: {e}")
+        await update.message.reply_text("⚠️ Ошибка запуска чата")
     finally:
         if conn:
             conn.close()
     return ConversationHandler.END
+
+
+
 async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle messages in active chat"""
     if 'active_chat' not in context.user_data:
@@ -1489,12 +1529,16 @@ async def show_help_requests(update: Update, context: ContextTypes.DEFAULT_TYPE)
             conn.close()
 async def start_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start chat session with proper ID validation"""
+    conn = None
     try:
-        if not context.args:
-            await update.message.reply_text("Используйте /chat_ВАШ_ТОКЕН")
+        # Extract the token from the message
+        chat_token = update.message.text[6:]  # Remove '/chat_' from the message
+        
+        # Validate token length (assuming 16 characters)
+        if len(chat_token) != 16:
+            await update.message.reply_text("🚫 Неверный формат токена.")
             return ConversationHandler.END
 
-        chat_token = context.args[0]
         conn = get_db_connection()
         with conn.cursor() as cursor:
             # Verify chat exists with proper relations
@@ -1548,6 +1592,7 @@ async def start_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if conn:
             conn.close()
     return ConversationHandler.END
+
 
 async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle chat messages with proper ID forwarding"""
@@ -1635,48 +1680,81 @@ async def toggle_availability(update: Update, context: ContextTypes.DEFAULT_TYPE
     finally:
         if conn:
             conn.close()
-async def end_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """End active chat session"""
+async def end_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """End active chat session with proper notifications to both parties"""
+    if 'active_chat' not in context.user_data:
+        await update.message.reply_text("🚫 Нет активного чата для завершения")
+        return ConversationHandler.END
+    
     conn = None
     try:
-        user_chat_id = update.effective_chat.id
+        chat_data = context.user_data['active_chat']
+        current_user_id = update.effective_user.id
         
         conn = get_db_connection()
         with conn.cursor() as cursor:
+            # End the chat in database
             cursor.execute("""
                 UPDATE chats 
                 SET ended_at = NOW() 
-                WHERE id = (
-                    SELECT c.id 
-                    FROM chats c
-                    JOIN users u ON c.user_id = u.id OR c.volunteer_id = u.id
-                    WHERE u.telegram_chat_id = %s AND c.ended_at IS NULL
-                    ORDER BY c.started_at DESC 
-                    LIMIT 1
-                )
+                WHERE id = %s
                 RETURNING 
-                    (SELECT telegram_chat_id FROM users WHERE id = c.user_id),
-                    (SELECT telegram_chat_id FROM users WHERE id = c.volunteer_id)
-            """, (user_chat_id,))
+                    (SELECT telegram_chat_id FROM users WHERE id = user_id),
+                    (SELECT telegram_chat_id FROM users WHERE id = volunteer_id)
+            """, (chat_data['chat_id'],))
             
             participants = cursor.fetchone()
+            conn.commit()
+            
             if participants:
-                user_id, volunteer_id = participants
-                other_party_id = volunteer_id if user_chat_id == user_id else user_id
+                user_chat_id, volunteer_chat_id = participants
                 
-                await context.bot.send_message(
-                    chat_id=other_party_id,
-                    text="❌ Чат был завершен другой стороной."
-                )
+                # Determine who is who
+                other_party_id = volunteer_chat_id if current_user_id == user_chat_id else user_chat_id
                 
-            await update.message.reply_text("✅ Чат успешно завершен.")
-
+                # Get names for nice messages
+                cursor.execute("""
+                    SELECT original_name FROM users WHERE telegram_chat_id = %s
+                """, (current_user_id,))
+                your_name = cursor.fetchone()[0]
+                
+                cursor.execute("""
+                    SELECT original_name FROM users WHERE telegram_chat_id = %s
+                """, (other_party_id,))
+                other_name = cursor.fetchone()[0]
+                
+                # Notify other party
+                try:
+                    await context.bot.send_message(
+                        chat_id=other_party_id,
+                        text=f"❌ Чат с {your_name} был завершен.\n\n"
+                             "Если вам снова понадобится помощь, "
+                             "вы можете создать новый запрос командой /help"
+                    )
+                except Exception as e:
+                    logger.error(f"Error notifying other party: {e}")
+            
+            # Clear chat context
+            context.user_data.pop('active_chat', None)
+            
+            await update.message.reply_text(
+                f"✅ Вы завершили чат с {other_name}.\n\n"
+                "Спасибо за использование нашего сервиса! "
+                "Если вам снова понадобится помощь, "
+                "вы можете создать новый запрос командой /help",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            
     except Exception as e:
         logger.error(f"Error ending chat: {e}")
-        await update.message.reply_text("⚠️ Ошибка при завершении чата.")
+        await update.message.reply_text(
+            "⚠️ Произошла ошибка при завершении чата. Пожалуйста, попробуйте снова."
+        )
     finally:
         if conn:
             conn.close()
+    
+    return ConversationHandler.END
 async def handle_volunteer_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Process volunteer's response to help request with improved error handling."""
     query = update.callback_query
@@ -1816,20 +1894,22 @@ async def chat_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 def main() -> None:
     """Run the bot with all handlers."""
     application = Application.builder().token(BOT_TOKEN).build()
-    chat_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("chat", start_chat),
-            CallbackQueryHandler(handle_request_action, pattern="^accept_")
-        ],
-        states={
-            CHAT_MESSAGING: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_chat_message)
-            ]
-        },
-        fallbacks=[CommandHandler("endchat", end_chat)]
-    )
     
-    application.add_handler(chat_handler)
+    chat_handler = ConversationHandler(
+    entry_points=[
+        MessageHandler(chat_token_filter, start_chat),
+        CallbackQueryHandler(handle_request_action, pattern="^(accept|decline)_")
+    ],
+    states={
+        CHAT_MESSAGING: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_chat_message),
+            MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL, handle_chat_message)
+        ]
+    },
+    fallbacks=[CommandHandler("endchat", end_chat)],
+)
+
+    
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -1842,21 +1922,10 @@ def main() -> None:
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-
-    # Chat conversation handler (only add this once!)
-    chat_handler = ConversationHandler(
-    entry_points=[CommandHandler("chat", start_chat)],
-    states={
-        CHAT_MESSAGING: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_chat_message),
-            MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL, handle_chat_message)
-        ]
-    },
-    fallbacks=[CommandHandler("endchat", end_chat)],
-)
     
+    application.add_handler(chat_handler)
     application.add_handler(conv_handler)
-
+    application.add_handler(CommandHandler("debug_chat", debug_chat))
     application.add_handler(CommandHandler("endchat", end_chat))
     application.add_handler(CommandHandler("history", chat_history))
     application.add_handler(CommandHandler("status", check_status))
@@ -1866,7 +1935,6 @@ def main() -> None:
     application.add_handler(CommandHandler("complete", mark_complete))
     application.add_handler(MessageHandler(filters.LOCATION, handle_location))
     application.add_handler(CallbackQueryHandler(handle_volunteer_response))
-    application.add_handler(CallbackQueryHandler(handle_request_action, pattern="^(accept|decline)_"))
     application.add_handler(CommandHandler("requests", show_help_requests))
     application.add_error_handler(error_handler)
 
