@@ -20,7 +20,7 @@
             <div class="flex items-center text-sm text-gray-500 mb-4">
                 <span class="mr-4">Автор: {{ post.user.name }}</span>
                 <span>Опубликовано: {{ formatDate(post.created_at) }}</span>
-            </div>E
+            </div>
         </div>
 
         <div class="bg-white p-6 rounded-lg shadow-md">
@@ -185,7 +185,7 @@ const props = defineProps<{
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Форум', href: '/forum' },
-    { title: props.post.title, href: route('post.show', { id: props.post.id }) }
+    { title: props.post.title, href: route('forum.show', { id: props.post.id }) }
 ];
 
 const newComment = ref('');
@@ -242,7 +242,7 @@ const handleAddComment = (): void => {
 
 const addComment = async (): Promise<void> => {
     try {
-        await router.post(route('posts.comment.store', { post: props.post.id }), {
+        await router.post(route('forum.comment.store', { post: props.post.id }), {
             content: newComment.value,
         }, {
             preserveScroll: true,

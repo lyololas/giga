@@ -1116,7 +1116,6 @@ async def handle_chat_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         chat_data = context.user_data['active_chat']
         sender_id = update.effective_user.id
         
-        # Get sender name
         conn = get_db_connection()
         with conn.cursor() as cursor:
             cursor.execute("""

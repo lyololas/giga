@@ -75,7 +75,7 @@ class PostsController extends Controller
         $comment->post_id = $post->id;
         $comment->save();
 
-        return redirect()->route('post.show', $post->id)
+        return redirect()->route('forum.show', $post->id)
             ->with('success', 'Comment added successfully');
     }
 }

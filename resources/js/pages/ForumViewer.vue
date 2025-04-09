@@ -105,7 +105,7 @@ const handleImageError = (event: Event) => {
                     class="bg-white mt-5 relative overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border"
                 >
                     <Link 
-                        :href="route('post.show', { id: post.id })"
+                        :href="route('forum.show', { id: post.id })"
                         class="block w-full h-full"
                     >
                         <div class="w-full h-48 bg-gray-100">

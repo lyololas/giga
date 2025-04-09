@@ -142,11 +142,7 @@ const toggleFaq = (index: number) => {
                     >
                     <div>
                         <h3 class="text-xl font-semibold">
-                            <a 
-                                :href="category.name === 'СВОИ Новости' ? route('forum.index') : category.name === 'СВОИ Обсуждения' ? route('gh.index') : '#'"
-                            >
-                                {{ category.name }}
-                            </a>
+                            
                         </h3>
                         <p class="text-sm text-gray-500">{{ category.count }} {{ category.name.split(' ')[1].toLowerCase() }}</p>
                     </div>

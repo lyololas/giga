@@ -45,9 +45,8 @@ Route::get('gh', function () {
 Route::get('gh', [GHController::class, 'index'])->name('gh.index');
 Route::get('/gh/{id}', [GHController::class, 'show'])->name('gh.show');
 
-Route::get('/forum', [PostsController::class, 'index'])->name('post.index');
-Route::get('/forum/{id}', [PostsController::class, 'show'])->name('post.show');
-Route::get('forum/{id}', [PostsController::class, 'show'])->name('post.show');
+Route::get('/forum', [PostsController::class, 'index'])->name('forum.index');
+Route::get('/forum/{id}', [PostsController::class, 'show'])->name('forum.show');
 
 
 
