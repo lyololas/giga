@@ -23,20 +23,20 @@ class PostsController extends Controller
     }
 
     public function show($id)
-{
-    $post = Post::with(['user', 'comments.user']) 
-              ->findOrFail($id);
+    {
+        $post = Post::with(['user', 'comments.user']) 
+                  ->findOrFail($id);
 
-  
-    $comments = $post->comments()
-                   ->with('user')
-                   ->get();
+        $comments = $post->comments()
+                       ->with('user')
+                       ->get();
 
-    return Inertia::render('ForumShow', [
-        'post' => $post,
-        'comments' => $comments,
-    ]);
-}
+        return Inertia::render('ForumShow', [
+            'post' => $post,
+            'comments' => $comments,
+        ]);
+    }
+
     public function store(Request $request)
     {
         $validated = $request->validate([

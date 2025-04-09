@@ -14,7 +14,6 @@ class GHController extends Controller
             ->where('is_moderated', true)
             ->first();
 
-        // Add author's name or user ID
         $author = $currentHistory ? $currentHistory->user->name ?? $currentHistory->user->id : null;
 
         $allTags = Tags::all();
@@ -22,7 +21,7 @@ class GHController extends Controller
 
         return Inertia::render('GHShow', [
             'currentHistory' => $currentHistory,
-            'author' => $author, // Pass the author's name or ID
+            'author' => $author, 
             'allTags' => $allTags,
             'totalHistories' => $totalHistories,
         ]);

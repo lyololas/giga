@@ -9,8 +9,8 @@ const props = defineProps<{
 }>();
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Good Histories', href: '/good-histories' },
-    { title: props.history.title, href: `/good-histories/${props.history.id}` }
+    { title: 'Good Histories', href: '/gh' },
+    { title: props.history.title, href: `/gh/${props.history.id}` }
 ];
 </script>
 

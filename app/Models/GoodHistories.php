@@ -30,4 +30,4 @@ class GoodHistories extends Model
     {
         return $this->belongsToMany(Tags::class, 'good_histories_tags', 'good_history_id', 'tag_id');
     }
-}
+}   

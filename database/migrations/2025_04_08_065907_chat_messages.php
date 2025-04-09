@@ -10,19 +10,19 @@ return new class extends Migration
      * Run the migrations.
      */
     public function up(): void
-    {
-        Schema::create('chat_messages', function (Blueprint $table) {
-            $table->id();
-            $table->string('chat_token');
-            $table->foreignId('sender_id')->constrained('users')->onDelete('cascade');
-            $table->text('message');
-            $table->timestamp('sent_at');
-        });
-    }
+{
+    Schema::create('chat_messages', function (Blueprint $table) {
+        $table->id();
+        $table->foreignId('chat_id')->constrained()->onDelete('cascade');
+        $table->foreignId('sender_id')->constrained('users')->onDelete('cascade');
+        $table->text('message');
+        $table->timestamps();
+        
+        // Optimized indexing
+        $table->index(['chat_id', 'created_at']); 
+    });
+}
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('chat_messages');

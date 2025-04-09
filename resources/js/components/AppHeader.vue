@@ -50,31 +50,19 @@ const mainNavItems: NavItem[] = [
         icon: HeartHandshake,
     },
     {
-        title: 'В-О',
-        href: '/qa',
+        title: 'Срочная помощь',
+        href: '/qrcode',
         icon: HeartHandshake,
     },
 ];
 
-const rightNavItems: NavItem[] = [
-    {
-        title: 'Repository',
-        href: 'https://github.com/laravel/vue-starter-kit',
-        icon: Folder,
-    },
-    {
-        title: 'Documentation',
-        href: 'https://laravel.com/docs/starter-kits',
-        icon: BookOpen,
-    },
-];
+
 </script>
 
 <template>
     <div>
         <div class="border-b border-sidebar-border/80">
             <div class="mx-auto flex h-16 items-center px-4 md:max-w-7xl">
-                <!-- Mobile Menu -->
                 <div class="lg:hidden">
                     <Sheet>
                         <SheetTrigger :as-child="true">
